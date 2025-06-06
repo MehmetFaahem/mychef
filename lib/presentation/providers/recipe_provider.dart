@@ -1,18 +1,14 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/models/recipe_model.dart';
 import '../../data/services/ai_service.dart';
-import '../../data/services/camera_service.dart';
 import '../../data/repositories/recipe_repository.dart';
 
 // Service Providers
 final aiServiceProvider = Provider<AIService>((ref) => AIService());
 
-final cameraServiceProvider = Provider<CameraService>((ref) => CameraService());
-
 final recipeRepositoryProvider = Provider<RecipeRepository>((ref) {
   return RecipeRepository(
     aiService: ref.watch(aiServiceProvider),
-    cameraService: ref.watch(cameraServiceProvider),
   );
 });
 
@@ -24,7 +20,6 @@ class RecipeState {
   final List<String> recentIngredients;
   final bool isLoading;
   final String? error;
-  final bool isCameraInitialized;
 
   const RecipeState({
     this.generatedRecipes = const [],
@@ -33,7 +28,6 @@ class RecipeState {
     this.recentIngredients = const [],
     this.isLoading = false,
     this.error,
-    this.isCameraInitialized = false,
   });
 
   RecipeState copyWith({
@@ -43,7 +37,6 @@ class RecipeState {
     List<String>? recentIngredients,
     bool? isLoading,
     String? error,
-    bool? isCameraInitialized,
   }) {
     return RecipeState(
       generatedRecipes: generatedRecipes ?? this.generatedRecipes,
@@ -52,7 +45,6 @@ class RecipeState {
       recentIngredients: recentIngredients ?? this.recentIngredients,
       isLoading: isLoading ?? this.isLoading,
       error: error,
-      isCameraInitialized: isCameraInitialized ?? this.isCameraInitialized,
     );
   }
 }
@@ -132,50 +124,6 @@ class RecipeNotifier extends StateNotifier<RecipeState> {
     state = state.copyWith(selectedIngredients: ingredients);
   }
 
-  // Camera Operations
-  Future<void> initializeCamera() async {
-    try {
-      await _repository.initializeCamera();
-      state = state.copyWith(isCameraInitialized: true);
-    } catch (e) {
-      state = state.copyWith(error: e.toString());
-    }
-  }
-
-  Future<void> scanIngredientsFromCamera() async {
-    state = state.copyWith(isLoading: true, error: null);
-    try {
-      final ingredients = await _repository.scanIngredientsFromCamera();
-      final allIngredients = <String>{};
-      allIngredients.addAll(state.selectedIngredients);
-      allIngredients.addAll(ingredients);
-
-      state = state.copyWith(
-        selectedIngredients: allIngredients.toList(),
-        isLoading: false,
-      );
-    } catch (e) {
-      state = state.copyWith(isLoading: false, error: e.toString());
-    }
-  }
-
-  Future<void> scanIngredientsFromGallery() async {
-    state = state.copyWith(isLoading: true, error: null);
-    try {
-      final ingredients = await _repository.scanIngredientsFromGallery();
-      final allIngredients = <String>{};
-      allIngredients.addAll(state.selectedIngredients);
-      allIngredients.addAll(ingredients);
-
-      state = state.copyWith(
-        selectedIngredients: allIngredients.toList(),
-        isLoading: false,
-      );
-    } catch (e) {
-      state = state.copyWith(isLoading: false, error: e.toString());
-    }
-  }
-
   // Recipe Generation
   Future<void> generateRecipes(RecipePreferences preferences) async {
     if (state.selectedIngredients.isEmpty) {
@@ -236,7 +184,6 @@ class RecipeNotifier extends StateNotifier<RecipeState> {
 
   @override
   void dispose() {
-    _repository.disposeCamera();
     super.dispose();
   }
 }

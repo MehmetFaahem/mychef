@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/models/recipe_model.dart';
 import '../providers/recipe_provider.dart';
-import '../widgets/camera_preview.dart';
 import '../widgets/recipe_card.dart';
 import 'recipe_list_screen.dart';
 
@@ -18,19 +17,39 @@ class _IngredientInputScreenState extends ConsumerState<IngredientInputScreen>
     with SingleTickerProviderStateMixin {
   final TextEditingController _ingredientController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
-  late TabController _tabController;
+  final ScrollController _scrollController = ScrollController();
+  final GlobalKey _generatedRecipesKey = GlobalKey();
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
+  bool _wasGeneratingRecipes = false;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+    
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
+    );
+    
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.3),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _animationController, curve: Curves.easeOut));
+    
+    _animationController.forward();
   }
 
   @override
   void dispose() {
     _ingredientController.dispose();
     _focusNode.dispose();
-    _tabController.dispose();
+    _animationController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -39,20 +58,28 @@ class _IngredientInputScreenState extends ConsumerState<IngredientInputScreen>
     final recipeState = ref.watch(recipeProvider);
     final preferences = ref.watch(recipePreferencesProvider);
 
+    // Check if recipes were just generated and scroll to them
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_wasGeneratingRecipes && 
+          !recipeState.isLoading && 
+          recipeState.generatedRecipes.isNotEmpty &&
+          recipeState.error == null) {
+        _scrollToGeneratedRecipes();
+        _wasGeneratingRecipes = false;
+      }
+    });
+
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: Theme.of(context).colorScheme.background,
       appBar: AppBar(
-        title: const Text(
-          'My Chef AI',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: Colors.white,
+        title: const Text('My Chef AI'),
+        backgroundColor: Theme.of(context).primaryColor,
+        foregroundColor: Colors.white,
         elevation: 0,
-        foregroundColor: Colors.black,
         actions: [
           if (recipeState.savedRecipes.isNotEmpty)
             IconButton(
-              icon: const Icon(Icons.bookmark),
+              icon: const Icon(Icons.bookmark_rounded, size: 28),
               onPressed: () => Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -60,70 +87,113 @@ class _IngredientInputScreenState extends ConsumerState<IngredientInputScreen>
                 ),
               ),
             ),
+          const SizedBox(width: 8),
         ],
       ),
-      body: Column(
-        children: [
-          // Tab Bar
-          Container(
-            color: Colors.white,
-            child: TabBar(
-              controller: _tabController,
-              labelColor: Colors.orange,
-              unselectedLabelColor: Colors.grey,
-              indicatorColor: Colors.orange,
-              tabs: const [
-                Tab(icon: Icon(Icons.edit), text: 'Manual Input'),
-                Tab(icon: Icon(Icons.camera_alt), text: 'Camera Scan'),
-              ],
-            ),
-          ),
-
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
+      body: FadeTransition(
+        opacity: _fadeAnimation,
+        child: SlideTransition(
+          position: _slideAnimation,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            controller: _scrollController,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildManualInputTab(recipeState, preferences),
-                _buildCameraScanTab(recipeState),
+                // Welcome Section
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Theme.of(context).primaryColor.withOpacity(0.1),
+                        Theme.of(context).primaryColor.withOpacity(0.05),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(
+                      color: Theme.of(context).primaryColor.withOpacity(0.2),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+        children: [
+          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).primaryColor,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: const Icon(
+                              Icons.restaurant_menu,
+            color: Colors.white,
+                              size: 28,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                                Text(
+                                  'What\'s in your kitchen?',
+                                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                                    color: Theme.of(context).primaryColor,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Add ingredients and let AI create amazing recipes for you',
+                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: Theme.of(context).primaryColor.withOpacity(0.7),
+                                  ),
+                                ),
               ],
             ),
           ),
         ],
       ),
-    );
-  }
+                    ],
+                  ),
+                ),
 
-  Widget _buildManualInputTab(
-    RecipeState recipeState,
-    RecipePreferences preferences,
-  ) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+                const SizedBox(height: 32),
+
           // Input Section
           Container(
-            padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(24),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 10,
-                  offset: const Offset(0, 2),
+                        color: Colors.black.withOpacity(0.06),
+                        blurRadius: 20,
+                        offset: const Offset(0, 8),
                 ),
               ],
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                      Text(
                   'Add Ingredients',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: const Color(0xFF2D3436),
+                        ),
                 ),
-                const SizedBox(height: 16),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Type ingredients one by one',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                      const SizedBox(height: 20),
                 Row(
                   children: [
                     Expanded(
@@ -131,28 +201,46 @@ class _IngredientInputScreenState extends ConsumerState<IngredientInputScreen>
                         controller: _ingredientController,
                         focusNode: _focusNode,
                         decoration: InputDecoration(
-                          hintText:
-                              'Enter ingredient (e.g., tomatoes, chicken)',
+                                hintText: 'e.g., tomatoes, chicken, pasta...',
+                                hintStyle: TextStyle(
+                                  color: Colors.grey[400],
+                                  fontSize: 16,
+                                ),
+                                prefixIcon: Icon(
+                                  Icons.add_circle_outline,
+                                  color: Theme.of(context).primaryColor,
+                                  size: 24,
+                                ),
                           border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(16),
+                                  borderSide: BorderSide.none,
                           ),
-                          prefixIcon: const Icon(Icons.restaurant),
+                                filled: true,
+                                fillColor: Colors.grey[50],
                         ),
+                              style: const TextStyle(fontSize: 16),
                         onSubmitted: (_) => _addIngredient(),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    ElevatedButton(
+                          const SizedBox(width: 12),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).primaryColor,
+                              borderRadius: BorderRadius.circular(16),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Theme.of(context).primaryColor.withOpacity(0.3),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: IconButton(
                       onPressed: _addIngredient,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.orange,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
+                              icon: const Icon(Icons.add, color: Colors.white),
+                              iconSize: 28,
                         padding: const EdgeInsets.all(16),
                       ),
-                      child: const Icon(Icons.add),
                     ),
                   ],
                 ),
@@ -160,17 +248,21 @@ class _IngredientInputScreenState extends ConsumerState<IngredientInputScreen>
             ),
           ),
 
-          const SizedBox(height: 16),
+                const SizedBox(height: 24),
 
           // Recent Ingredients
           if (recipeState.recentIngredients.isNotEmpty) ...[
-            const Text(
+                  Text(
               'Recent Ingredients',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF2D3436),
+                    ),
             ),
-            const SizedBox(height: 8),
+                  const SizedBox(height: 12),
             SizedBox(
-              height: 40,
+                    height: 45,
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
                 itemCount: recipeState.recentIngredients.length,
@@ -181,7 +273,7 @@ class _IngredientInputScreenState extends ConsumerState<IngredientInputScreen>
                   );
 
                   return Padding(
-                    padding: const EdgeInsets.only(right: 8),
+                          padding: const EdgeInsets.only(right: 12),
                     child: FilterChip(
                       label: Text(ingredient),
                       selected: isSelected,
@@ -196,14 +288,23 @@ class _IngredientInputScreenState extends ConsumerState<IngredientInputScreen>
                               .removeIngredient(ingredient);
                         }
                       },
-                      selectedColor: Colors.orange.withOpacity(0.2),
-                      checkmarkColor: Colors.orange,
+                            selectedColor: Theme.of(context).primaryColor,
+                            labelStyle: TextStyle(
+                              color: isSelected ? Colors.white : Theme.of(context).primaryColor,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            backgroundColor: Colors.white,
+                            side: BorderSide(
+                              color: Theme.of(context).primaryColor.withOpacity(0.3),
+                            ),
+                            elevation: isSelected ? 4 : 2,
+                            shadowColor: Theme.of(context).primaryColor.withOpacity(0.3),
                     ),
                   );
                 },
               ),
             ),
-            const SizedBox(height: 16),
+                  const SizedBox(height: 24),
           ],
 
           // Selected Ingredients
@@ -211,70 +312,146 @@ class _IngredientInputScreenState extends ConsumerState<IngredientInputScreen>
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  'Selected Ingredients',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                      Text(
+                        'Selected Ingredients (${recipeState.selectedIngredients.length})',
+                        style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF2D3436),
+                        ),
                 ),
-                TextButton(
+                      TextButton.icon(
                   onPressed: () =>
                       ref.read(recipeProvider.notifier).clearIngredients(),
-                  child: const Text('Clear All'),
+                        icon: const Icon(Icons.clear_all),
+                        label: const Text('Clear All'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.grey[600],
+                        ),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: Theme.of(context).primaryColor.withOpacity(0.2),
+                      ),
+                    ),
+                    child: Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
               children: recipeState.selectedIngredients.map((ingredient) {
-                return Chip(
-                  label: Text(ingredient),
-                  deleteIcon: const Icon(Icons.close, size: 18),
+                        return Container(
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).primaryColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(25),
+                            border: Border.all(
+                              color: Theme.of(context).primaryColor.withOpacity(0.3),
+                            ),
+                          ),
+                          child: Chip(
+                            label: Text(
+                              ingredient,
+                              style: TextStyle(
+                                color: Theme.of(context).primaryColor,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            deleteIcon: Icon(
+                              Icons.close_rounded,
+                              size: 20,
+                              color: Theme.of(context).primaryColor,
+                            ),
                   onDeleted: () => ref
                       .read(recipeProvider.notifier)
                       .removeIngredient(ingredient),
-                  backgroundColor: Colors.orange.withOpacity(0.1),
-                  deleteIconColor: Colors.orange,
+                            backgroundColor: Colors.transparent,
+                            side: BorderSide.none,
+                            elevation: 0,
+                          ),
                 );
               }).toList(),
             ),
-            const SizedBox(height: 24),
+                  ),
+
+                  const SizedBox(height: 32),
 
             // Recipe Preferences
             _buildPreferencesSection(preferences),
 
-            const SizedBox(height: 24),
+                  const SizedBox(height: 32),
 
             // Generate Button
-            SizedBox(
+                  Container(
               width: double.infinity,
+                    height: 60,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          Theme.of(context).primaryColor,
+                          Theme.of(context).primaryColor.withOpacity(0.8),
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Theme.of(context).primaryColor.withOpacity(0.4),
+                          blurRadius: 20,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                    ),
               child: ElevatedButton(
                 onPressed: recipeState.isLoading
                     ? null
                     : () => _generateRecipes(preferences),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+                        backgroundColor: Colors.transparent,
+                        shadowColor: Colors.transparent,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(20),
                   ),
                 ),
                 child: recipeState.isLoading
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
+                          ? Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const SizedBox(
+                                  height: 24,
+                                  width: 24,
                         child: CircularProgressIndicator(
                           color: Colors.white,
                           strokeWidth: 2,
                         ),
-                      )
-                    : const Text(
-                        'Generate Recipes with AI',
-                        style: TextStyle(
-                          fontSize: 16,
+                                ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  'Generating recipes...',
+                                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            )
+                          : Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.auto_awesome, color: Colors.white, size: 24),
+                                const SizedBox(width: 12),
+                                Text(
+                                  'Generate AI Recipes',
+                                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                    color: Colors.white,
                           fontWeight: FontWeight.bold,
+                                    fontSize: 18,
                         ),
+                                ),
+                              ],
                       ),
               ),
             ),
@@ -282,26 +459,45 @@ class _IngredientInputScreenState extends ConsumerState<IngredientInputScreen>
 
           // Error Display
           if (recipeState.error != null) ...[
-            const SizedBox(height: 16),
+                  const SizedBox(height: 24),
             Container(
-              padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 color: Colors.red.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: Colors.red.withOpacity(0.3)),
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.error, color: Colors.red),
-                  const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.red.withOpacity(0.2),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.error_outline, color: Colors.red, size: 20),
+                        ),
+                        const SizedBox(width: 12),
                   Expanded(
-                    child: Text(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Error',
+                                style: TextStyle(
+                                  color: Colors.red,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              Text(
                       recipeState.error!,
                       style: const TextStyle(color: Colors.red),
+                              ),
+                            ],
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close),
+                          icon: const Icon(Icons.close, color: Colors.red),
                     onPressed: () =>
                         ref.read(recipeProvider.notifier).clearError(),
                   ),
@@ -312,11 +508,17 @@ class _IngredientInputScreenState extends ConsumerState<IngredientInputScreen>
 
           // Generated Recipes
           if (recipeState.generatedRecipes.isNotEmpty) ...[
-            const SizedBox(height: 24),
-            const Text(
-              'Generated Recipes',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
+                  const SizedBox(height: 32),
+                  Container(
+                    key: _generatedRecipesKey,
+                    child: Text(
+                'Generated Recipes',
+                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: const Color(0xFF2D3436),
+                      ),
+              ),
+                  ),
             const SizedBox(height: 16),
             ...recipeState.generatedRecipes.map((recipe) {
               return Padding(
@@ -330,139 +532,66 @@ class _IngredientInputScreenState extends ConsumerState<IngredientInputScreen>
           ],
         ],
       ),
-    );
-  }
-
-  Widget _buildCameraScanTab(RecipeState recipeState) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          CameraPreviewWidget(
-            onCapture: () {
-              if (recipeState.selectedIngredients.isNotEmpty) {
-                _tabController.animateTo(0);
-              }
-            },
           ),
-
-          const SizedBox(height: 16),
-
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.blue.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.blue.withOpacity(0.3)),
-            ),
-            child: const Column(
-              children: [
-                Icon(Icons.info, color: Colors.blue),
-                SizedBox(height: 8),
-                Text(
-                  'Tips for best results:',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.blue,
-                  ),
-                ),
-                SizedBox(height: 8),
-                Text(
-                  '• Ensure good lighting\n'
-                  '• Position ingredients clearly in view\n'
-                  '• Avoid shadows and reflections\n'
-                  '• Hold camera steady',
-                  style: TextStyle(color: Colors.blue),
-                ),
-              ],
-            ),
-          ),
-
-          if (recipeState.selectedIngredients.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.green.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.green.withOpacity(0.3)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Row(
-                    children: [
-                      Icon(Icons.check_circle, color: Colors.green),
-                      SizedBox(width: 8),
-                      Text(
-                        'Ingredients Found:',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.green,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: recipeState.selectedIngredients.map((ingredient) {
-                      return Chip(
-                        label: Text(ingredient),
-                        backgroundColor: Colors.green.withOpacity(0.2),
-                      );
-                    }).toList(),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () => _tabController.animateTo(0),
-                      child: const Text('Review & Generate Recipes'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ],
+        ),
       ),
     );
   }
 
   Widget _buildPreferencesSection(RecipePreferences preferences) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).primaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.tune,
+                  color: Theme.of(context).primaryColor,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
             'Recipe Preferences',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: const Color(0xFF2D3436),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
 
           _buildDropdown(
             'Dietary Restrictions',
             preferences.dietaryRestrictions,
             ['', 'Vegetarian', 'Vegan', 'Gluten-Free', 'Keto', 'Paleo'],
+            Icons.restaurant_menu,
             (value) => ref.read(recipePreferencesProvider.notifier).state =
                 preferences.copyWith(dietaryRestrictions: value),
           ),
 
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
 
           _buildDropdown(
             'Cuisine Type',
@@ -476,41 +605,98 @@ class _IngredientInputScreenState extends ConsumerState<IngredientInputScreen>
               'Mediterranean',
               'American',
             ],
+            Icons.public,
             (value) => ref.read(recipePreferencesProvider.notifier).state =
                 preferences.copyWith(cuisineType: value),
           ),
 
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
 
           _buildDropdown(
             'Difficulty',
             preferences.difficulty,
             ['', 'Easy', 'Medium', 'Hard'],
+            Icons.bar_chart,
             (value) => ref.read(recipePreferencesProvider.notifier).state =
                 preferences.copyWith(difficulty: value),
           ),
 
-          const SizedBox(height: 12),
+          const SizedBox(height: 20),
 
-          Row(
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Theme.of(context).primaryColor.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: Theme.of(context).primaryColor.withOpacity(0.2),
+              ),
+            ),
+            child: Row(
             children: [
-              const Text('Servings: '),
-              const SizedBox(width: 16),
+                Icon(
+                  Icons.group,
+                  color: Theme.of(context).primaryColor,
+                  size: 24,
+                ),
+                const SizedBox(width: 12),
               Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Servings',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Theme.of(context).primaryColor,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          activeTrackColor: Theme.of(context).primaryColor,
+                          inactiveTrackColor: Theme.of(context).primaryColor.withOpacity(0.3),
+                          thumbColor: Theme.of(context).primaryColor,
+                          overlayColor: Theme.of(context).primaryColor.withOpacity(0.2),
+                          valueIndicatorColor: Theme.of(context).primaryColor,
+                          valueIndicatorTextStyle: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                 child: Slider(
                   value: preferences.servings.toDouble(),
                   min: 1,
                   max: 8,
                   divisions: 7,
-                  label: '${preferences.servings}',
+                          label: '${preferences.servings} ${preferences.servings == 1 ? 'person' : 'people'}',
                   onChanged: (value) {
                     ref.read(recipePreferencesProvider.notifier).state =
                         preferences.copyWith(servings: value.round());
                   },
                 ),
               ),
-              Text('${preferences.servings}'),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).primaryColor,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '${preferences.servings}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
             ],
+            ),
           ),
         ],
       ),
@@ -521,33 +707,75 @@ class _IngredientInputScreenState extends ConsumerState<IngredientInputScreen>
     String label,
     String value,
     List<String> options,
+    IconData icon,
     Function(String) onChanged,
   ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Row(
+          children: [
+            Icon(
+              icon,
+              color: Theme.of(context).primaryColor,
+              size: 20,
+            ),
+            const SizedBox(width: 8),
         Text(
           label,
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context).primaryColor,
+              ),
+            ),
+          ],
         ),
-        const SizedBox(height: 4),
-        DropdownButtonFormField<String>(
-          value: value.isEmpty ? null : value,
-          decoration: InputDecoration(
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 8,
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: Theme.of(context).primaryColor.withOpacity(0.2),
             ),
           ),
-          hint: Text('Select $label'),
+          child: DropdownButtonFormField<String>(
+          value: value.isEmpty ? null : value,
+          decoration: InputDecoration(
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide.none,
+              ),
+            contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 12,
+            ),
+              filled: true,
+              fillColor: Colors.transparent,
+          ),
+            hint: Text(
+              'Select $label',
+              style: TextStyle(color: Colors.grey[500]),
+            ),
           items: options.map((option) {
             return DropdownMenuItem(
               value: option.isEmpty ? null : option,
-              child: Text(option.isEmpty ? 'Any' : option),
+                child: Text(
+                  option.isEmpty ? 'Any' : option,
+                  style: TextStyle(
+                    color: option.isEmpty ? Colors.grey[600] : const Color(0xFF2D3436),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
             );
           }).toList(),
           onChanged: (newValue) => onChanged(newValue ?? ''),
+            icon: Icon(
+              Icons.keyboard_arrow_down,
+              color: Theme.of(context).primaryColor,
+            ),
+          ),
         ),
       ],
     );
@@ -563,7 +791,19 @@ class _IngredientInputScreenState extends ConsumerState<IngredientInputScreen>
   }
 
   void _generateRecipes(RecipePreferences preferences) {
+    _wasGeneratingRecipes = true;
     ref.read(recipeProvider.notifier).generateRecipes(preferences);
+  }
+
+  void _scrollToGeneratedRecipes() {
+    final keyContext = _generatedRecipesKey.currentContext;
+    if (keyContext != null) {
+      Scrollable.ensureVisible(
+        keyContext,
+        duration: const Duration(milliseconds: 800),
+        curve: Curves.easeInOut,
+      );
+    }
   }
 
   void _viewRecipe(Recipe recipe) {

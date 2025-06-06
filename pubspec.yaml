@@ -37,11 +37,6 @@ dependencies:
 
   # AI & ML
   google_generative_ai: ^0.2.0
-  google_ml_kit: ^0.18.0
-
-  # Camera
-  camera: ^0.10.0+1
-  image_picker: ^1.0.4
 
   # State Management
   flutter_riverpod: ^2.4.9

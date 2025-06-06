@@ -2,20 +2,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import '../models/recipe_model.dart';
 import '../services/ai_service.dart';
-import '../services/camera_service.dart';
 
 class RecipeRepository {
   final AIService _aiService;
-  final CameraService _cameraService;
   static const String _savedRecipesKey = 'saved_recipes';
   static const String _favoriteRecipesKey = 'favorite_recipes';
   static const String _recentIngredientsKey = 'recent_ingredients';
 
   RecipeRepository({
     required AIService aiService,
-    required CameraService cameraService,
-  }) : _aiService = aiService,
-       _cameraService = cameraService;
+  }) : _aiService = aiService;
 
   // Recipe Generation
   Future<List<Recipe>> generateRecipes({
@@ -38,47 +34,6 @@ class RecipeRepository {
       );
     } catch (e) {
       throw Exception('Failed to generate recipes: $e');
-    }
-  }
-
-  // Camera-based ingredient recognition
-  Future<List<String>> scanIngredientsFromCamera() async {
-    try {
-      final ingredients = await _cameraService.scanIngredientsFromCamera();
-      await _enhanceIngredientsWithAI(ingredients);
-      return ingredients;
-    } catch (e) {
-      throw Exception('Failed to scan ingredients from camera: $e');
-    }
-  }
-
-  Future<List<String>> scanIngredientsFromGallery() async {
-    try {
-      final ingredients = await _cameraService.scanIngredientsFromGallery();
-      await _enhanceIngredientsWithAI(ingredients);
-      return ingredients;
-    } catch (e) {
-      throw Exception('Failed to scan ingredients from gallery: $e');
-    }
-  }
-
-  Future<List<String>> _enhanceIngredientsWithAI(
-    List<String> scannedIngredients,
-  ) async {
-    try {
-      final text = scannedIngredients.join(' ');
-      final enhancedIngredients = await _aiService.identifyIngredientsFromText(
-        text,
-      );
-
-      // Merge and deduplicate
-      final allIngredients = <String>{};
-      allIngredients.addAll(scannedIngredients);
-      allIngredients.addAll(enhancedIngredients);
-
-      return allIngredients.toList();
-    } catch (e) {
-      return scannedIngredients; // Return original if AI enhancement fails
     }
   }
 
@@ -199,80 +154,33 @@ class RecipeRepository {
     }
   }
 
-  // Recipe Search & Filtering
+  // Recipes Filtering & Search
   Future<List<Recipe>> searchRecipes(String query) async {
-    final savedRecipes = await getSavedRecipes();
-
-    if (query.isEmpty) return savedRecipes;
-
-    final lowercaseQuery = query.toLowerCase();
-    return savedRecipes.where((recipe) {
-      return recipe.name.toLowerCase().contains(lowercaseQuery) ||
-          recipe.ingredients.any(
-            (ingredient) => ingredient.toLowerCase().contains(lowercaseQuery),
-          ) ||
-          recipe.tags.any((tag) => tag.toLowerCase().contains(lowercaseQuery));
-    }).toList();
-  }
-
-  Future<List<Recipe>> filterRecipesByDifficulty(String difficulty) async {
-    final savedRecipes = await getSavedRecipes();
-
-    if (difficulty.isEmpty) return savedRecipes;
-
-    return savedRecipes
-        .where(
-          (recipe) =>
-              recipe.difficulty?.toLowerCase() == difficulty.toLowerCase(),
-        )
-        .toList();
-  }
-
-  Future<List<Recipe>> filterRecipesByTime(int maxMinutes) async {
-    final savedRecipes = await getSavedRecipes();
-
-    return savedRecipes
-        .where((recipe) => recipe.totalTime <= maxMinutes)
-        .toList();
-  }
-
-  // AI Suggestions
-  Future<String> getRecipeSuggestion({
-    required String mood,
-    required String weather,
-    required int timeAvailable,
-  }) async {
-    return await _aiService.getRecipeSuggestion(
-      mood: mood,
-      weather: weather,
-      timeAvailable: timeAvailable,
-    );
-  }
-
-  // Camera Control
-  Future<void> initializeCamera() async {
-    await _cameraService.initialize();
-  }
-
-  void disposeCamera() {
-    _cameraService.dispose();
-  }
-
-  bool get isCameraInitialized => _cameraService.isInitialized;
-
-  Future<void> switchCamera() async {
-    await _cameraService.switchCamera();
-  }
-
-  // Clear Data
-  Future<void> clearAllData() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_savedRecipesKey);
-      await prefs.remove(_favoriteRecipesKey);
-      await prefs.remove(_recentIngredientsKey);
+      final savedRecipes = await getSavedRecipes();
+      if (query.isEmpty) return savedRecipes;
+
+      return savedRecipes.where((recipe) {
+        return recipe.name.toLowerCase().contains(query.toLowerCase()) ||
+            recipe.ingredients.any((ingredient) =>
+                ingredient.toLowerCase().contains(query.toLowerCase())) ||
+            recipe.tags.any((tag) => tag.toLowerCase().contains(query.toLowerCase()));
+      }).toList();
     } catch (e) {
-      throw Exception('Failed to clear data: $e');
+      return [];
+    }
+  }
+
+  Future<List<Recipe>> getRecipesByCategory(String category) async {
+    try {
+      final savedRecipes = await getSavedRecipes();
+      if (category.isEmpty) return savedRecipes;
+
+      return savedRecipes.where((recipe) {
+        return recipe.tags.any((tag) => tag.toLowerCase() == category.toLowerCase());
+      }).toList();
+    } catch (e) {
+      return [];
     }
   }
 }
